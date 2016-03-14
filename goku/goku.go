@@ -1,21 +1,103 @@
-package main
+package goku
 
 import (
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 )
 
-var digits = []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
-var digStr = strings.Join(digits, "")
-var rows = []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"}
+var (
+	digits = []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+	digStr = strings.Join(digits, "")
+	rows   = []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"}
 
-var cols = digits
-var squares = cross(rows, cols)
-var unitList = getUnitList()
-var units = getUnits()
-var peers = getPeers()
+	cols     = digits
+	squares  = cross(rows, cols)
+	unitList = getUnitList()
+	units    = getUnits()
+	peers    = getPeers()
+)
+
+// Solve : requires a grid (puzzle) to start Solving
+// ex;	4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2.....1.4......
+// can also be 0 instead of .(period)
+func Solve(grid string) (map[string]string, error) {
+	val, err := ParseGrid(grid)
+	if err != nil {
+		return nil, err
+	}
+	return Search(val)
+}
+
+// SolveDirect : used to expose only primitive types for bridge.go
+func SolveDirect(grid string) (string, error) {
+	val, err := ParseGrid(grid)
+	if err != nil {
+		return "", err
+	}
+	result, err := Search(val)
+	if err != nil {
+		return "", err
+	}
+	return PlainDisplay(result), nil
+}
+
+// Search : using depth-first search and propagation, try all possible values.
+func Search(values map[string]string) (map[string]string, error) {
+	//fmt.Println("deep:",deep)
+	if values == nil {
+		return nil, fmt.Errorf("Incorrect Puzzle")
+	}
+	solved := true
+	for s := range values {
+		if len(values[s]) != 1 {
+			solved = false
+		}
+	}
+	if solved {
+		return values, nil
+	}
+	// Chose the unfilled square s with the fewest possibilities
+	min := len(digits) + 1
+	sq := ""
+	for _, s := range squares {
+		l := len(values[s])
+		if l > 1 {
+			if l < min {
+				sq = s
+				min = l
+			}
+		}
+	}
+
+	for _, d := range values[sq] {
+
+		testValues := copyMap(values)
+		err := assign(testValues, sq, string(d))
+		if err != nil {
+			continue
+		}
+
+		searchCall, _ := Search(testValues)
+		val := checkNoZero(searchCall)
+
+		if val == nil {
+			continue
+		}
+		return val, nil
+	}
+	return nil, fmt.Errorf("Nothing wrong, recursion working..")
+}
+
+func checkNoZero(test map[string]string) map[string]string {
+	for s := range test {
+		if s == "" {
+			return nil
+		}
+	}
+
+	return test
+}
 
 func cross(a, b []string) []string {
 	crossPr := []string{}
@@ -114,14 +196,14 @@ func getPeers() map[string][]string {
 
 // ParseGrid : Convert grid to a dict of possible values, {square: digits},
 // or return False if a contradiction is detected.
-func ParseGrid(grid string) map[string]string {
+func ParseGrid(grid string) (map[string]string, error) {
 	values := make(map[string]string, len(squares))
 	for _, s := range squares {
 		values[s] = digStr
 	}
 	gridNew, err := gridValues(grid)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	for s, d := range gridNew {
@@ -130,13 +212,13 @@ func ParseGrid(grid string) map[string]string {
 			//&& err != nil {
 			err := assign(values, s, d)
 			if err != nil {
-				return nil
+				return nil, err
 			}
 
 		}
 	}
 
-	return values
+	return values, nil
 }
 
 // Convert grid into a dict of {square: char} with '0' or '.' for empties.
@@ -233,66 +315,6 @@ func eliminate(values map[string]string, s string, d string) error {
 	return nil
 }
 
-func Solve(grid string) map[string]string {
-	return Search(ParseGrid(grid))
-}
-
-// Using depth-first search and propagation, try all possible values.
-func Search(values map[string]string) map[string]string {
-	//fmt.Println("deep:",deep)
-	if values == nil {
-		return nil
-	}
-	solved := true
-	for s, _ := range values {
-		if len(values[s]) != 1 {
-			solved = false
-		}
-	}
-	if solved {
-		return values
-	}
-	// Chose the unfilled square s with the fewest possibilities
-	min := len(digits) + 1
-	sq := ""
-	for _, s := range squares {
-		l := len(values[s])
-		if l > 1 {
-			if l < min {
-				sq = s
-				min = l
-			}
-		}
-	}
-
-	for _, d := range values[sq] {
-
-		testValues := copyMap(values)
-		err := assign(testValues, sq, string(d))
-		if err != nil {
-			continue
-		}
-
-		val := checkNoZero(Search(testValues))
-
-		if val == nil {
-			continue
-		}
-		return val
-	}
-	return nil
-}
-
-func checkNoZero(test map[string]string) map[string]string {
-	for s := range test {
-		if s == "" {
-			return nil
-		}
-	}
-
-	return test
-}
-
 func copyMap(values map[string]string) map[string]string {
 	copyVal := make(map[string]string, len(values))
 	for k, v := range values {
@@ -302,8 +324,19 @@ func copyMap(values map[string]string) map[string]string {
 	return copyVal
 }
 
-// Display ...
-func Display(values map[string]string) {
+// PlainDisplay : used for mobile (Android/iOS) communication
+func PlainDisplay(values map[string]string) (output string) {
+	for _, row := range rows {
+		for _, col := range digits {
+			output += values[string(row)+string(col)]
+		}
+	}
+
+	return output
+}
+
+// PrettyDisplay : used to output on cli
+func PrettyDisplay(values map[string]string) {
 	for r, row := range rows {
 		for c, col := range digits {
 			if c == 3 || c == 6 {
